@@ -1,0 +1,15 @@
+
+
+class Iperf3(object):
+
+    def __init__(self):
+        print("*************************************")
+        print("** Make sure SSH keys for servers  **")
+        print("*************************************")
+        return
+
+    def run_performance_tests(self,
+                              protocol='tcp', # protocol to be used 
+                              bw='50M',       # bandwidth
+                              duration='300',
+                              flow_num='20',
