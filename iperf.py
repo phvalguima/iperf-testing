@@ -3,6 +3,7 @@ import time
 import os
 import stat
 import threading
+import uuid
 
 class Iperf3(object):
 
@@ -29,7 +30,51 @@ class Iperf3(object):
         os.chmod(filename, os.stat(filename).st_mode | stat.S_IEXEC)
 
 
+    def get_result_value_from_client_iperf_file(self,client_file):
+        print(client_file)
+        proc = subprocess.Popen(['./get_value.sh',client_file],stdout=subprocess.PIPE)
+        proc.wait()
+        value_bytes = proc.communicate()[0].decode('utf-8')
+        value=''.join(str(v) for v in value_bytes)
+        # May return \n only
+        if not value or ('\n' in value and len(value)==1):
+            return None
+        print(value)
+        proc = subprocess.Popen(['./get_metric.sh',client_file],stdout=subprocess.PIPE)
+        proc.wait()
+        metric_bytes = proc.communicate()[0].decode('utf-8')
+        metric=''.join(str(v) for v in metric_bytes)
+        if 'M' in metric:
+            return float(value)
+        if 'G' in metric:
+            return (float(value) * 1000.0)
+        return(float(value) * 0.001)
 
+    
+    def get_results(self,
+                    client_key,
+                    client_addr,
+                    flow_num=20):
+        sum = 0.0
+        filepath='./' + client_addr + '_'
+        filepath += str(uuid.uuid4())
+        filepath += '/'
+        os.mkdir(filepath)
+        scp = subprocess.Popen(['scp','-i',client_key,client_addr + ':~/iperf3_output.*',filepath])
+        scp.wait()
+        failed_flows = 0
+        for i in range(0,flow_num):
+            outfile = filepath + 'iperf3_output.' + str(i)
+            res = self.get_result_value_from_client_iperf_file(outfile)
+            if res == None:
+                failed_flows += 1
+            else:
+                sum += res
+            
+        print('Total is: {} Mbps'.format(sum))
+        print('Mean is: {} Mbps'.format(sum/float(flow_num)))
+        
+        
     def run_performance_tests(self,
                               use_udp=False, # protocol to be used 
                               bw='500M',       # bandwidth
@@ -40,7 +85,7 @@ class Iperf3(object):
                               server_file='server_file.sh',
                               client_file='client_file.sh'):
         sleep_between_serv_clients = 30
-        s_cmd_base = 'iperf3 -s'
+        s_cmd_base = 'iperf3 -s -1'
         c_cmd_base = 'iperf3 -c ' + self.ssh_machine2 + ' -b ' + bw + ' -t ' + duration
         if use_udp:
             c_cmd_base += ' -u'
@@ -80,8 +125,12 @@ class Iperf3(object):
         print("Waiting for test to finish........")
         time.sleep(int(duration) + sleep_between_serv_clients)
         print("DONE")
-        subprocess.Popen(['ssh','-i',self.ssh_key2,self.ssh_machine2,
-                          "kill -9 $(ps aux | grep iperf | awk \'{print $2}\')"])
+        #subprocess.Popen(['ssh','-i',self.ssh_key2,self.ssh_machine2,
+        #                  "kill -9 $(ps aux | grep iperf | awk \'{print $2}\')"])
+        self.get_results(client_key=self.ssh_key1,
+                         client_addr=self.ssh_machine1,
+                         flow_num=flow_num)
+        
 
 
 if __name__=="__main__":
@@ -116,10 +165,12 @@ if __name__=="__main__":
                                                              bw=bw,
                                                              duration=duration,
                                                              flow_num=flow_num,
-                                                            server_port=server_port))
+                                                             server_port=server_port))
         thread_list.append(thread)
         thread.start()
 
     #waiting threads to finish:
     for t in thread_list:
         t.join()
+    
+    
